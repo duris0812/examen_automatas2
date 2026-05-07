@@ -1,0 +1,236 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sistema de Búsquedas - BFS, DFS, UCS</title>
+    <link rel="stylesheet" href="/static/search_app/style.css">
+</head>
+<body>
+    {% csrf_token %}
+    <div class="container">
+        <header>
+            <h1>Sistema de Busquedas</h1>
+            <p>Selecciona un algoritmo y encuentra el camino óptimo</p>
+        </header>
+
+        <div class="search-container">
+            <div class="search-form">
+                <h2>Configurar Búsqueda</h2>
+                
+                <div class="form-group">
+                    <label for="initialState">Ciudad Origen:</label>
+                    <select id="initialState" class="city-select" onchange="onCitiesChange()">
+                        <option value="">Selecciona una ciudad</option>
+                    </select>
+                </div>
+
+                <div class="form-group">
+                    <label for="targetState">Ciudad Destino:</label>
+                    <select id="targetState" class="city-select" onchange="onCitiesChange()">
+                        <option value="">Selecciona una ciudad</option>
+                    </select>
+                </div>
+
+                <button class="btn-search" id="searchButton" onclick="executeSearch()">Ejecutar Busqueda</button>
+                <button class="btn-clear" id="clearButton" onclick="clearForm()">Limpiar</button>
+            </div>
+
+            <div class="result-container">
+                <div id="loadingSpinner" class="hidden">
+                    <div class="spinner"></div>
+                    <p>Buscando...</p>
+                </div>
+
+                <div id="resultBox" class="hidden result-box">
+                    <h3>Resultado de la Busqueda</h3>
+                    <div id="resultContent"></div>
+                </div>
+
+                <div id="errorBox" class="hidden error-box">
+                    <h3>Error</h3>
+                    <p id="errorMessage"></p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = '';
+
+        function onCitiesChange() {
+            const clearButton = document.getElementById('clearButton');
+
+            clearButton.style.display = 'block';
+        }
+
+        // Actualizar nodos disponibles
+        function updateNodes() {
+            
+            fetch(`${API_BASE}/api/graph-nodes/`)
+                .then(response => response.json())
+                .then(data => {
+                    const initialSelect = document.getElementById('initialState');
+                    const targetSelect = document.getElementById('targetState');
+
+                    // Limpiar opciones
+                    initialSelect.innerHTML = '<option value="">Selecciona una ciudad</option>';
+                    targetSelect.innerHTML = '<option value="">Selecciona una ciudad</option>';
+                    
+                    // Agregar nuevas opciones
+                    data.nodes.forEach(node => {
+                        const option1 = document.createElement('option');
+                        option1.value = node;
+                        option1.textContent = node;
+                        initialSelect.appendChild(option1);
+                        
+                        const option2 = document.createElement('option');
+                        option2.value = node;
+                        option2.textContent = node;
+                        targetSelect.appendChild(option2);
+                    });
+                    
+                });
+        }
+
+        // Ejecutar búsqueda
+        function executeSearch() {
+            const initialState = document.getElementById('initialState').value;
+            const targetState = document.getElementById('targetState').value;
+
+            if (!initialState || !targetState) {
+                showError('Por favor selecciona la ciudad inicial y la ciudad objetivo');
+                return;
+            }
+
+            showLoading();
+            hideError();
+            hideResult();
+
+            fetch(`${API_BASE}/api/search/`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': getCookie('csrftoken')
+                },
+                body: JSON.stringify({
+                    initial_state: initialState,
+                    target_state: targetState
+                })
+            })
+            .then(response => response.json())
+            .then(data => {
+                hideLoading();
+                
+                if (data.success) {
+                    displayResult(data);
+                } else {
+                    showError(data.error);
+                }
+            })
+            .catch(error => {
+                hideLoading();
+                showError('Error en la búsqueda: ' + error);
+            });
+        }
+
+        // Mostrar resultado
+        function displayResult(data) {
+            const resultContent = document.getElementById('resultContent');
+            const origin = document.getElementById('initialState').value;
+            const destination = document.getElementById('targetState').value;
+
+            const cardsHtml = data.results.map(item => {
+                const pathHTML = item.path.map((step, idx) => {
+                    if (idx < item.path.length - 1) {
+                        return `<span class="path-step">${step}</span><span class="path-arrow">→</span>`;
+                    }
+                    return `<span class="path-step">${step}</span>`;
+                }).join('');
+
+                return `
+                    <div class="algorithm-card ${item.algorithm_key}">
+                        <div class="algorithm-card-header">
+                            <h4>${item.algorithm_name}</h4>
+                            <span>${origin} → ${destination}</span>
+                        </div>
+                        <div class="result-path">${pathHTML}</div>
+                        <div class="result-stats">
+                            <p><strong>Ruta encontrada:</strong> ${item.route_text}</p>
+                            <p><strong>Número de pasos:</strong> ${item.steps}</p>
+                            <p><strong>Costo total:</strong> ${item.cost} km</p>
+                            <p><strong>Costo promedio por tramo:</strong> ${item.average_cost} km</p>
+                            <p><strong>Estado:</strong> ${item.found ? 'Ruta encontrada' : 'Sin ruta'}</p>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            resultContent.innerHTML = `
+                <div class="result-summary">
+                    <div class="summary-item"><span>Origen</span><strong>${origin}</strong></div>
+                    <div class="summary-item"><span>Destino</span><strong>${destination}</strong></div>
+                    <div class="summary-item"><span>Algoritmos ejecutados</span><strong>3</strong></div>
+                </div>
+                <div class="algorithm-grid">${cardsHtml}</div>
+            `;
+            showResult();
+        }
+
+        // Funciones de UI
+        function showLoading() {
+            document.getElementById('loadingSpinner').classList.remove('hidden');
+        }
+
+        function hideLoading() {
+            document.getElementById('loadingSpinner').classList.add('hidden');
+        }
+
+        function showResult() {
+            document.getElementById('resultBox').classList.remove('hidden');
+        }
+
+        function hideResult() {
+            document.getElementById('resultBox').classList.add('hidden');
+        }
+
+        function showError(message) {
+            document.getElementById('errorMessage').textContent = message;
+            document.getElementById('errorBox').classList.remove('hidden');
+        }
+
+        function hideError() {
+            document.getElementById('errorBox').classList.add('hidden');
+        }
+
+        function clearForm() {
+            document.getElementById('initialState').value = '';
+            document.getElementById('targetState').value = '';
+            
+            hideError();
+            hideResult();
+        }
+
+        // Obtener CSRF token
+        function getCookie(name) {
+            let cookieValue = null;
+            if (document.cookie && document.cookie !== '') {
+                const cookies = document.cookie.split(';');
+                for (let i = 0; i < cookies.length; i++) {
+                    const cookie = cookies[i].trim();
+                    if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                        break;
+                    }
+                }
+            }
+            return cookieValue;
+        }
+
+        // Inicialización
+        document.addEventListener('DOMContentLoaded', function() {
+            updateNodes();
+        });
+    </script>
+</body>
+</html>
